@@ -1,6 +1,8 @@
 # Introduction
 
 This is code for the YouTube video on bipeadal walking:
+"How to Make a Robot Walk (No AI, Just Physics)"
+https://www.youtube.com/watch?v=RXGrTD71FMc
 
 Do not expect this code to be cleanly written or prefectly structured. There is for sure a bunch of spelling mistaces and bad variable naming among other coding crimes. But the code runs and I left it at that. 
 
