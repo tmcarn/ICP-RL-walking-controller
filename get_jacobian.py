@@ -75,5 +75,3 @@ def get_pos_2d_jacobians(q):
     J_l = Jl_lin[[0,2], :][:, left_cols]
 
     return J_r, J_l
-
-print(get_pos_2d_jacobians(q))

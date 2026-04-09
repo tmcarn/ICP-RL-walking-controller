@@ -30,6 +30,7 @@
         <body name="torso" pos="0 0 1.6">
             <geom type="capsule" size="0.1 0.3" mass="8" rgba="0.8 0.2 0.2 1"/>
             <joint type="free"/>
+            <site name="torso_site" pos="0 0 0" size="0.02" rgba="1 0 0 0.8" euler="0 0 180"/>
             
 
             <!-- Right leg -->
@@ -93,5 +94,10 @@
         <velocity joint="left_knee" kv="30"/>
         <velocity joint="left_foot_j" kv="0.1"/>
     </actuator>
+
+    <sensor>
+        <gyro name="body_gyro" site="torso_site"/>
+       <!-- <accelerometer name="body_acc" site="torso_site"/> -->
+    </sensor>
     
 </mujoco>

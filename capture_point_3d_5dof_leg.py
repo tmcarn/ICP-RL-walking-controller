@@ -83,7 +83,7 @@ def get_p_y(y_com, dy_com, ddy_com, z_com, dy_des):
 
 def get_height(z_com_target, h_target, h_0, t_start, t_now, e_step_down):
     """
-    returns z_1, z_com: where z_1 is the current target heright of the swing foot, 
+    returns z_1, z_com: where z_1 is the current target height of the swing foot, 
         and z_com is the target height of the com from the stance frame. 
     z_com_target: is the target height of com
     h_target: is the foot lift height
@@ -505,6 +505,13 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
         t_ += dt
         itt +=1
         time.sleep(max(0.0, t_next - time.time()))
+
+        
+        site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "torso_site")
+        site_pos = data.site_xpos[site_id]
+        site_mat = data.site_xmat[site_id].reshape(3, 3)
+
+        utils.draw_frame(viewer=viewer, pos=site_pos, mat=site_mat, size=0.3)
 
 
     
