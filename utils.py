@@ -85,8 +85,13 @@ def capsule_end_frame_world(model, data, body_name, torso_name="torso"):
 
     # project torso x onto ground plane
     x = x_torso - np.dot(x_torso, z) * z
-    x /= np.linalg.norm(x)
 
+    norm = np.linalg.norm(x)
+    if norm < 1e-6:
+        x = np.array([1.0, 0.0, 0.0])
+    else:
+        x /= norm
+    
     # complete right-handed frame
     y = np.cross(z, x)
 

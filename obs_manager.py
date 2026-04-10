@@ -99,7 +99,7 @@ class ObservationManager():
         """
         action = np.zeros(self.num_joints)
         for _ in range(self.history_length):
-            self.update(data, velocity_command, action)
+            self.update(velocity_command, action)
 
 
 
@@ -117,20 +117,22 @@ class ObservationManager():
         return np.array([gx, gy, gz])
     
 class CommandGenerator:
-    def __init__(self, dt, change_interval=2.0):
+    def __init__(self, dt, change_interval=4): # Changes every 4 seconds
         self.dt = dt
         self.change_interval = change_interval
         self.timer = 0.0
         self.cmd = np.zeros(3)
 
-    def reset(self, np_random):
+    def reset(self):
         self.timer = 0.0
-        self._sample(np_random)
+        self._sample()
         return self.cmd
 
     def step(self):
         self.timer += self.dt
-        if self.timer >= self.change_interval:
+        
+        time_s = self.timer / 60
+        if time_s >= self.change_interval:
             self._sample()
             self.timer = 0.0
         return self.cmd
