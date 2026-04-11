@@ -5,8 +5,10 @@ import mujoco.viewer
 import numpy as np
 import os
 import time
-from obs_manager import ObservationManager, CommandGenerator
+from obs_manager import ObservationManager, CommandGenerator, PushDisturbance
 from icp_controller import WalkingController
+
+import utils
 
 class WalkerEnv(gym.Env):
     """
@@ -24,7 +26,7 @@ class WalkerEnv(gym.Env):
     control_freq = 50 # Hz
 
 
-    def __init__(self, render_mode="rgb_array"):
+    def __init__(self, render_mode="rgb_array", base_controller=True):
         xml_path = os.path.join("xml_files", "biped_3d_5dof_leg.xml")
         self.model = mujoco.MjModel.from_xml_path(xml_path)
         self.data = mujoco.MjData(self.model)
@@ -65,13 +67,16 @@ class WalkerEnv(gym.Env):
         self.obs_manager = ObservationManager(self.model, self.data, num_joints=self.n_joints, history_length=self.obs_hist)
         self.prev_action = None
 
-        self.decimation = int(1 / (self.control_freq * self.model.opt.timestep))
-
         self.dt = self.model.opt.timestep
+        self.decimation = int(1 / (self.control_freq * self.dt))
+
+        
         self.command_manager = CommandGenerator(dt=(self.dt * self.decimation))
         self.command_manager.reset()
 
         self.controller = WalkingController(self.model, self.data, t0=0.0)
+
+        self.push_disturbance = PushDisturbance(self.dt)
 
         
 
@@ -105,6 +110,8 @@ class WalkerEnv(gym.Env):
 
         self.controller = WalkingController(self.model, self.data, t0=0.0) # Reinitialize Controller
 
+        self.push_disturbance.reset()
+
         observation = self._get_obs(cmd_vel, self.prev_action)
 
         self._step_count = 0
@@ -118,19 +125,25 @@ class WalkerEnv(gym.Env):
         action = np.clip(action, -1.0, 1.0)
 
         # Get command velocity for this step
-        self._cmd_vel = self.command_manager.step()
+        self._cmd_vel = - self.command_manager.step()
         dx_des, dy_des, dz_omega = self._cmd_vel
 
         # Compute base controller output once per step
         icp_ctrl = self.controller.step(
             t=self.data.time,
-            dx_des=-dx_des,
-            dy_des=-dy_des,
+            dx_des=dx_des,
+            dy_des=dy_des,
             dz_omega=dz_omega,
         )
 
         # Add residual
         ctrl = icp_ctrl + (self.residual_scale * action)
+
+        # Perturbation
+        push = self.push_disturbance.step()    # <-- here
+        if push is not None:
+            self.data.qvel[0:2] += push
+
 
         # Run substeps
         for _ in range(self.decimation):
@@ -235,15 +248,44 @@ class WalkerEnv(gym.Env):
         if self.render_mode == "human":
             if self._viewer is None:
                 self._viewer = mujoco.viewer.launch_passive(self.model, self.data)
+
+            # Clear previous debug geoms
+            self._viewer._user_scn.ngeom = 0
+
+            torso_id = mujoco.mj_name2id(
+                self.model, mujoco.mjtObj.mjOBJ_BODY, "torso"
+            )
+            torso_pos = self.data.xpos[torso_id]
+
+            # Actual body velocity (green)
+            body_vel = 2 * self.data.cvel[torso_id][3:]  # linear velocity
+            body_vel[-1] = 0
+
+            utils.draw_arrow(
+                self._viewer,
+                pos=torso_pos,
+                direction=body_vel,
+                radius=0.1,
+                rgba=[0, 1, 0, 0.8],
+            )
+
+            # Commanded velocity (blue)
+            if hasattr(self, '_cmd_vel'):
+                cmd_dir = 2 * np.array([
+                    self._cmd_vel[0],
+                    self._cmd_vel[1],
+                    0.0,
+                ])
+                utils.draw_arrow(
+                    self._viewer,
+                    pos=torso_pos,  # offset up slightly so they don't overlap
+                    direction=cmd_dir,
+                    radius=0.1,
+                    rgba=[0, 0.5, 1, 0.8],
+                )
+
             self._viewer.sync()
             return None
-
-        elif self.render_mode == "rgb_array":
-            if self._renderer is None:
-                self._renderer = mujoco.Renderer(self.model, height=480, width=640)
-            self._renderer.update_scene(self.data, camera="track")
-            return self._renderer.render()
-
 
     def close(self):
         if self._viewer is not None:
@@ -257,7 +299,7 @@ class WalkerEnv(gym.Env):
 
 
 
-# env = WalkerEnv()
+# env = WalkerEnv(render_mode="human")
 
 # while True:
 #     obs, r, term, trunc, info = env.step(np.zeros(10))

@@ -11,13 +11,15 @@ from walker_env import WalkerEnv
 import os
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
-num_envs = 10
+
+
 def make_env(render_mode):
     def _init():
         return WalkerEnv(render_mode=render_mode)
     return _init
 
 # No rendering for training
+num_envs = 10
 train_env = SubprocVecEnv([make_env(render_mode=None) for _ in range(num_envs)], start_method='fork')
 train_env = VecMonitor(train_env)
 train_env = VecNormalize(

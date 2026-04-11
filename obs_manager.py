@@ -142,4 +142,28 @@ class CommandGenerator:
             np.random.uniform(-1.0, 1.0),   # z_ang (yaw rate)
         ])
 
-    
+
+class PushDisturbance:
+    def __init__(self, dt, push_interval=4.0, velocity_range=(0.5, 2.0)):
+        self.dt = dt
+        self.push_interval = push_interval
+        self.velocity_range = velocity_range
+        self.timer = 0.0
+
+    def reset(self):
+        self.timer = 0.0
+
+    def step(self):
+        self.timer += self.dt
+
+        if self.timer >= self.push_interval:
+            self.timer = 0.0
+            return self._sample()
+
+        return None
+
+    def _sample(self):
+        return np.array([
+            np.random.uniform(-self.velocity_range[1], self.velocity_range[1]),
+            np.random.uniform(-self.velocity_range[1], self.velocity_range[1]),
+        ])

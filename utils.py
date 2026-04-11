@@ -101,8 +101,6 @@ def capsule_end_frame_world(model, data, body_name, torso_name="torso"):
     return p_end, R
 
 
-
-
 def foot_end_frame_world(model, data, foot_body_name, torso_name="torso"):
     """
     Returns:
@@ -254,6 +252,66 @@ def draw_point(viewer, p, radius=0.01, rgba=(1,0,0,1)):
     g.pos[:] = p
     g.rgba[:] = rgba
     viewer.add_geom(g)
+
+def _rotation_matrix(direction):
+        """
+        Compute rotation matrix that aligns z-axis with direction.
+        MuJoCo geoms point along their local z-axis.
+        """
+        z = np.array(direction, dtype=np.float64)
+        z = z / np.linalg.norm(z)
+
+        # Pick a non-parallel vector for cross product
+        if abs(z[2]) < 0.9:
+            up = np.array([0, 0, 1], dtype=np.float64)
+        else:
+            up = np.array([1, 0, 0], dtype=np.float64)
+
+        x = np.cross(up, z)
+        x = x / np.linalg.norm(x)
+        y = np.cross(z, x)
+
+        return np.column_stack([x, y, z])
+
+def draw_arrow(viewer, pos, direction, length=None, radius=0.02,
+                   rgba=[1, 0, 0, 0.8]):
+        """
+        Draw an arrow in the viewer scene.
+
+        Args:
+            viewer: MuJoCo passive viewer
+            pos: (3,) start position in world frame
+            direction: (3,) direction vector (will be normalized)
+            length: arrow length (if None, uses magnitude of direction)
+            radius: arrow thickness
+            rgba: color [r, g, b, a]
+        """
+        direction = np.array(direction, dtype=np.float64)
+        mag = np.linalg.norm(direction)
+        if mag < 1e-6:
+            return
+
+        if length is None:
+            length = mag
+
+        direction = direction / mag
+        end = np.array(pos) + direction * length
+
+        scene = viewer._user_scn
+        if scene.ngeom >= scene.maxgeom:
+            return
+
+        geom = scene.geoms[scene.ngeom]
+        mujoco.mjv_initGeom(
+            geom,
+            type=mujoco.mjtGeom.mjGEOM_ARROW,
+            size=[radius, radius, length / 2],
+            pos=(np.array(pos) + end) / 2,
+            mat=_rotation_matrix(direction).flatten(),
+            rgba=np.array(rgba, dtype=np.float32),
+        )
+        scene.ngeom += 1
+
 
 from pynput import keyboard
 class KeyboardController:
