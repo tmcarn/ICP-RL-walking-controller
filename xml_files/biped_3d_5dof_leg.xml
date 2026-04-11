@@ -5,6 +5,7 @@
 
     <worldbody>
         <light name="sun" directional="true" dir="-1 -1 -2" castshadow="true"/>
+        <camera name="track" pos="3 -3 1" xyaxes="1 1 0 0 0 1" mode="trackcom"/>
 
         <!-- Ground plane -->
         <geom name="ground" type="plane" size="50 50 0.1" rgba="0.2 0.3 0.4 1"/>

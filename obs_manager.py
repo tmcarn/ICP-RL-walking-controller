@@ -129,10 +129,8 @@ class CommandGenerator:
         return self.cmd
 
     def step(self):
-        self.timer += self.dt
-        
-        time_s = self.timer / 60
-        if time_s >= self.change_interval:
+        self.timer += self.dt        
+        if self.timer >= self.change_interval:
             self._sample()
             self.timer = 0.0
         return self.cmd

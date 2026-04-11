@@ -1,6 +1,7 @@
 import gymnasium as gym
 import mujoco
 import mujoco.viewer
+
 import numpy as np
 import os
 import time
@@ -23,10 +24,13 @@ class WalkerEnv(gym.Env):
     control_freq = 50 # Hz
 
 
-    def __init__(self, render_mode="human"):
+    def __init__(self, render_mode="rgb_array"):
         xml_path = os.path.join("xml_files", "biped_3d_5dof_leg.xml")
         self.model = mujoco.MjModel.from_xml_path(xml_path)
         self.data = mujoco.MjData(self.model)
+
+        # self.mjx_model = mjx.put_model(mj_model)
+        # self.mjx_data = mjx.put_data(mj_model, mj_data)
 
         self.n_joints = 10 # Hip: (Roll, Pitch, Yaw), Knee: Pitch, Ankle: Pitch
 
@@ -61,24 +65,28 @@ class WalkerEnv(gym.Env):
         self.obs_manager = ObservationManager(self.model, self.data, num_joints=self.n_joints, history_length=self.obs_hist)
         self.prev_action = None
 
+        self.decimation = int(1 / (self.control_freq * self.model.opt.timestep))
+
         self.dt = self.model.opt.timestep
-        self.command_manager = CommandGenerator(dt=self.dt)
+        self.command_manager = CommandGenerator(dt=(self.dt * self.decimation))
         self.command_manager.reset()
 
         self.controller = WalkingController(self.model, self.data, t0=0.0)
 
-        self.decimation = int(1 / (self.control_freq * self.model.opt.timestep))
+        
 
         self._step_count = 0
 
         episode_length = 30 # seconds
-        self._max_steps_per_episode = episode_length / (self.control_freq * self.model.opt.timestep)
+        self._max_steps_per_episode = self.control_freq * episode_length
 
         self.residual_scale = 1
 
         self.render_mode = render_mode
         self._viewer = None
         self._renderer = None
+
+        self.prev_action = np.zeros(self.n_joints, dtype=np.float32)
 
 
     def reset(self, seed=None, options=None):
@@ -107,14 +115,11 @@ class WalkerEnv(gym.Env):
 
     def step(self, action):
         self._step_count += 1
-
         action = np.clip(action, -1.0, 1.0)
 
         # Get command velocity for this step
         self._cmd_vel = self.command_manager.step()
         dx_des, dy_des, dz_omega = self._cmd_vel
-
-        print("COMMAND VEL", self._cmd_vel)
 
         # Compute base controller output once per step
         icp_ctrl = self.controller.step(
@@ -139,16 +144,17 @@ class WalkerEnv(gym.Env):
         self.prev_action = action.copy()
 
         # Reward
-        reward = self._compute_reward(action)
+        reward, info = self._compute_reward(action)
 
         # Termination
         terminated = self._check_terminated()
         truncated = self._check_truncated()
 
-        info = {
-            "icp_ctrl": icp_ctrl.copy(),
-            "cmd_vel": self._cmd_vel.copy(),
-        }
+        # info = {
+        #     "reward" : reward,
+        #     "icp_ctrl": icp_ctrl.copy(),
+        #     "cmd_vel": self._cmd_vel.copy(),
+        # }
 
         return obs, reward, terminated, truncated, info
     
@@ -189,7 +195,11 @@ class WalkerEnv(gym.Env):
 
         reward = r_velocity + 0.3 * r_yaw + r_action + r_smooth + r_alive
 
-        return reward
+        info = {
+            "reward/total" : reward
+        }
+
+        return reward, info
     
     def _check_truncated(self):
         if self._step_count > self._max_steps_per_episode:
@@ -234,6 +244,7 @@ class WalkerEnv(gym.Env):
             self._renderer.update_scene(self.data, camera="track")
             return self._renderer.render()
 
+
     def close(self):
         if self._viewer is not None:
             self._viewer.close()
@@ -241,6 +252,8 @@ class WalkerEnv(gym.Env):
         if self._renderer is not None:
             self._renderer.close()
             self._renderer = None
+
+        super().close()  
 
 
 
