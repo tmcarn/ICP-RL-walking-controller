@@ -26,7 +26,7 @@ from walker_env import WalkerEnv
 #     imageio.mimsave(filename, frames, fps=fps)
 #     print(f"Saved to {filename}")
 
-model_path = "./checkpoints/standingv2_6000000_steps.zip"
+model_path = "./checkpoints/standingv2_15000000_steps.zip"
 model = PPO.load(model_path)
 eval_env = WalkerEnv(render_mode="human")
 eval_env.reset()

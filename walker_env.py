@@ -124,6 +124,9 @@ class WalkerEnv(gym.Env):
         self._step_count += 1
         action = np.clip(action, -1.0, 1.0)
 
+        # For Baseline with No RL
+        # action = np.zeros_like(action)
+
         # Get command velocity for this step
         self._cmd_vel = - self.command_manager.step()
         dx_des, dy_des, dz_omega = self._cmd_vel
@@ -160,8 +163,16 @@ class WalkerEnv(gym.Env):
         reward, info = self._compute_reward(action)
 
         # Termination
+        termination_penalty = 0
         terminated = self._check_terminated()
+        if terminated:
+            termination_penalty = -500
+            reward += termination_penalty
+        
         truncated = self._check_truncated()
+
+        info["reward/term_penalty"] = termination_penalty
+        info["reward/total_reward"] = reward
 
         # info = {
         #     "reward" : reward,
@@ -209,7 +220,7 @@ class WalkerEnv(gym.Env):
         reward = r_velocity + 0.3 * r_yaw + r_action + r_smooth + r_alive
 
         info = {
-            "reward/total" : reward
+            "reward/total_reward" : reward
         }
 
         return reward, info
