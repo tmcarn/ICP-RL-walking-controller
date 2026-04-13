@@ -26,13 +26,12 @@ class WalkerEnv(gym.Env):
     control_freq = 50 # Hz
 
 
-    def __init__(self, render_mode="rgb_array", base_controller=True):
+    def __init__(self, render_mode="rgb_array", base_controller_only=False):
         xml_path = os.path.join("xml_files", "biped_3d_5dof_leg.xml")
         self.model = mujoco.MjModel.from_xml_path(xml_path)
         self.data = mujoco.MjData(self.model)
 
-        # self.mjx_model = mjx.put_model(mj_model)
-        # self.mjx_data = mjx.put_data(mj_model, mj_data)
+        self.base_controller_only = base_controller_only
 
         self.n_joints = 10 # Hip: (Roll, Pitch, Yaw), Knee: Pitch, Ankle: Pitch
 
@@ -124,6 +123,10 @@ class WalkerEnv(gym.Env):
         self._step_count += 1
         action = np.clip(action, -1.0, 1.0)
 
+        # For Baseline with No RL
+        if self.base_controller_only:
+            action = np.zeros_like(action)
+
         # Get command velocity for this step
         self._cmd_vel = - self.command_manager.step()
         dx_des, dy_des, dz_omega = self._cmd_vel
@@ -131,8 +134,8 @@ class WalkerEnv(gym.Env):
         # Compute base controller output once per step
         icp_ctrl = self.controller.step(
             t=self.data.time,
-            dx_des=dx_des,
-            dy_des=dy_des,
+            dx_des=dx_des, # Negated in original repo for some reason
+            dy_des=dy_des, # Negated in original repo for some reason
             dz_omega=dz_omega,
         )
 
@@ -154,7 +157,6 @@ class WalkerEnv(gym.Env):
 
         # Observation
         obs = self._get_obs(self._cmd_vel, action)
-        self.prev_action = action.copy()
 
         # Reward
         reward, info = self._compute_reward(action)
@@ -166,11 +168,7 @@ class WalkerEnv(gym.Env):
             info["reward/fall_penalty"] = -10.0
         truncated = self._check_truncated()
 
-        # info = {
-        #     "reward" : reward,
-        #     "icp_ctrl": icp_ctrl.copy(),
-        #     "cmd_vel": self._cmd_vel.copy(),
-        # }
+        self.prev_action = action.copy()
 
         return obs, reward, terminated, truncated, info
     
@@ -182,21 +180,21 @@ class WalkerEnv(gym.Env):
           - Penalize excessive joint velocities
           - Alive bonus
         """
-        # Velocity tracking: get torso velocity in world frame
-        torso_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "torso")
-        torso_vel = self.data.cvel[torso_id]  # (6,) — [angular(3), linear(3)]
-        lin_vel = torso_vel[3:]  # world-frame linear velocity
+        # Velocity tracking: get torso velocity in Body Frame
+        lin_vel_body, ang_vel_body = self._get_body_vel()
 
         dx_des, dy_des, dz_omega = self._cmd_vel
 
         # Forward/lateral velocity tracking
-        vel_error_x = (lin_vel[0] - dx_des) ** 2
-        vel_error_y = (lin_vel[1] - dy_des) ** 2
+        vel_error_x = (lin_vel_body[0] - dx_des) ** 2
+        vel_error_y = (lin_vel_body[1] - dy_des) ** 2
         r_velocity = np.exp(-2.0 * (vel_error_x + vel_error_y))
 
+        total_lin_vel_error = np.sqrt(vel_error_x + vel_error_y)
+
         # Yaw rate tracking
-        ang_vel_z = torso_vel[2]
-        yaw_error = (ang_vel_z - dz_omega) ** 2
+        yaw_vel_body = ang_vel_body[2]
+        yaw_error = (yaw_vel_body - dz_omega) ** 2
         r_yaw = np.exp(-2.0 * yaw_error)
 
         # Action penalty: discourage large residuals
@@ -207,6 +205,7 @@ class WalkerEnv(gym.Env):
         r_smooth = -0.001 * np.clip(np.sum(joint_vels ** 2), 0, 1000)
 
         # Upright orientation reward
+        torso_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "torso")
         torso_mat = self.data.xmat[torso_id].reshape(3, 3)
         upright = torso_mat[2, 2]  # z-component of torso z-axis (1=upright, 0=sideways)
         r_upright = upright - 1.0  # 0 when perfect, negative when tilted
@@ -227,6 +226,19 @@ class WalkerEnv(gym.Env):
         }
 
         return reward, info
+    
+    def _get_body_vel(self):
+        torso_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "torso")
+        R_t = self.data.xmat[torso_id].reshape(3, 3)
+
+        v_6d = np.zeros(6)
+        mujoco.mj_objectVelocity(self.model, self.data, mujoco.mjtObj.mjOBJ_BODY, torso_id, v_6d, 0)
+
+        lin_vel_body = R_t.T @ v_6d[3:]
+        ang_vel_body = R_t.T @ v_6d[:3]
+
+        return lin_vel_body, ang_vel_body
+
     
     def _check_truncated(self):
         if self._step_count > self._max_steps_per_episode:
@@ -271,21 +283,21 @@ class WalkerEnv(gym.Env):
             )
             torso_pos = self.data.xpos[torso_id]
 
-            # Actual body velocity (green)
-            body_vel = 2 * self.data.cvel[torso_id][3:]  # linear velocity
-            body_vel[-1] = 0
+            lin_vel_body, ang_vel_body = self._get_body_vel()
+
+            lin_vel_body[2] = 0 # Ignore Z component
 
             utils.draw_arrow(
                 self._viewer,
                 pos=torso_pos,
-                direction=body_vel,
-                radius=0.1,
+                direction=lin_vel_body,
+                radius=0.08,
                 rgba=[0, 1, 0, 0.8],
             )
 
             # Commanded velocity (blue)
             if hasattr(self, '_cmd_vel'):
-                cmd_dir = 2 * np.array([
+                cmd_dir = 4 * np.array([
                     self._cmd_vel[0],
                     self._cmd_vel[1],
                     0.0,
@@ -294,7 +306,7 @@ class WalkerEnv(gym.Env):
                     self._viewer,
                     pos=torso_pos,  # offset up slightly so they don't overlap
                     direction=cmd_dir,
-                    radius=0.1,
+                    radius=0.08,
                     rgba=[0, 0.5, 1, 0.8],
                 )
 

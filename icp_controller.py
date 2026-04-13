@@ -39,7 +39,7 @@ class WalkingConfig:
     py_min: float = 0.15
     py_max: float = 0.6
     # Ground geom names for contact detection
-    ground_geoms: list = field(default_factory=lambda: ["ground", "obstacle_box", "obstacle_box_2"])
+    ground_geoms: list = field(default_factory=lambda: ["ground"])
     # Foot body names
     foot_bodies: dict = field(default_factory=lambda: {"Right": "right_shin", "Left": "left_shin"})
     # Foot geom names for contact
