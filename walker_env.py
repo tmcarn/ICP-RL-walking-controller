@@ -76,7 +76,7 @@ class WalkerEnv(gym.Env):
 
         self.controller = WalkingController(self.model, self.data, t0=0.0)
 
-        self.push_disturbance = PushDisturbance(self.dt)
+        self.push_disturbance = PushDisturbance(self.dt * self.decimation)
 
         
 
@@ -85,7 +85,7 @@ class WalkerEnv(gym.Env):
         episode_length = 30 # seconds
         self._max_steps_per_episode = self.control_freq * episode_length
 
-        self.residual_scale = 1
+        self.residual_scale = 0.3
 
         self.render_mode = render_mode
         self._viewer = None
@@ -161,6 +161,9 @@ class WalkerEnv(gym.Env):
 
         # Termination
         terminated = self._check_terminated()
+        if terminated:
+            reward -= 10.0
+            info["reward/fall_penalty"] = -10.0
         truncated = self._check_truncated()
 
         # info = {
@@ -197,19 +200,30 @@ class WalkerEnv(gym.Env):
         r_yaw = np.exp(-2.0 * yaw_error)
 
         # Action penalty: discourage large residuals
-        r_action = -0.01 * np.sum(action ** 2)
+        r_action = -0.05 * np.sum(action ** 2)
 
-        # Joint velocity smoothness penalty
+        # Joint velocity smoothness penalty — clipped to prevent explosion
         joint_vels = self.data.qvel[-self.n_joints:]
-        r_smooth = -0.001 * np.sum(joint_vels ** 2)
+        r_smooth = -0.001 * np.clip(np.sum(joint_vels ** 2), 0, 1000)
+
+        # Upright orientation reward
+        torso_mat = self.data.xmat[torso_id].reshape(3, 3)
+        upright = torso_mat[2, 2]  # z-component of torso z-axis (1=upright, 0=sideways)
+        r_upright = upright - 1.0  # 0 when perfect, negative when tilted
 
         # Alive bonus
-        r_alive = 0.5
+        r_alive = 1.5
 
-        reward = r_velocity + 0.3 * r_yaw + r_action + r_smooth + r_alive
+        reward = r_velocity + 0.3 * r_yaw + r_action + r_smooth + r_upright + r_alive
 
         info = {
-            "reward/total" : reward
+            "reward/total":    reward,
+            "reward/velocity": r_velocity,
+            "reward/yaw":      0.3 * r_yaw,
+            "reward/action":   r_action,
+            "reward/smooth":   r_smooth,
+            "reward/upright":  r_upright,
+            "reward/alive":    r_alive,
         }
 
         return reward, info
@@ -286,6 +300,15 @@ class WalkerEnv(gym.Env):
 
             self._viewer.sync()
             return None
+
+        elif self.render_mode == "rgb_array":
+            if self._renderer is None:
+                self._renderer = mujoco.Renderer(self.model, height=480, width=640)
+            self._renderer.update_scene(self.data)
+            return self._renderer.render()
+
+    def set_push_magnitude(self, magnitude):
+        self.push_disturbance.velocity_range = (0.0, magnitude)
 
     def close(self):
         if self._viewer is not None:
