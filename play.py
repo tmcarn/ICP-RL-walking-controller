@@ -3,7 +3,7 @@ from stable_baselines3 import PPO
 from walker_env import WalkerEnv
 
 
-model_path = "./checkpoints/residual_rl_6000000_steps.zip"
+model_path = "./checkpoints/v2/residual_rl_7000000_steps.zip"
 model = PPO.load(model_path)
 eval_env = WalkerEnv(render_mode="human")
 eval_env.reset()

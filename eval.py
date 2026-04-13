@@ -103,7 +103,7 @@ def print_comparison(base_stats, residual_stats):
 
     print("=" * 85)
 
-model_path = "./best_model/best_model.zip"
+model_path = "./checkpoints/v4_clip_red/residual_rl_15000000_steps.zip"
 policy = PPO.load(model_path)
 
 print("\nEvaluating residual controller...")

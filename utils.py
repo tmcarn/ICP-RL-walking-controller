@@ -273,45 +273,31 @@ def _rotation_matrix(direction):
 
         return np.column_stack([x, y, z])
 
-def draw_arrow(viewer, pos, direction, length=None, radius=0.02,
-                   rgba=[1, 0, 0, 0.8]):
-        """
-        Draw an arrow in the viewer scene.
+def draw_arrow(scene, pos, direction, length=None, radius=0.02,
+               rgba=[1, 0, 0, 0.8]):
+    direction = np.array(direction, dtype=np.float64)
+    mag = np.linalg.norm(direction)
+    if mag < 1e-6:
+        return
 
-        Args:
-            viewer: MuJoCo passive viewer
-            pos: (3,) start position in world frame
-            direction: (3,) direction vector (will be normalized)
-            length: arrow length (if None, uses magnitude of direction)
-            radius: arrow thickness
-            rgba: color [r, g, b, a]
-        """
-        direction = np.array(direction, dtype=np.float64)
-        mag = np.linalg.norm(direction)
-        if mag < 1e-6:
-            return
+    if length is None:
+        length = mag
+    direction = direction / mag
+    end = np.array(pos) + direction * length
 
-        if length is None:
-            length = mag
+    if scene.ngeom >= scene.maxgeom:
+        return
 
-        direction = direction / mag
-        end = np.array(pos) + direction * length
-
-        scene = viewer._user_scn
-        if scene.ngeom >= scene.maxgeom:
-            return
-
-        geom = scene.geoms[scene.ngeom]
-        mujoco.mjv_initGeom(
-            geom,
-            type=mujoco.mjtGeom.mjGEOM_ARROW,
-            size=[radius, radius, length / 2],
-            pos=(np.array(pos) + end) / 2,
-            mat=_rotation_matrix(direction).flatten(),
-            rgba=np.array(rgba, dtype=np.float32),
-        )
-        scene.ngeom += 1
-
+    geom = scene.geoms[scene.ngeom]
+    mujoco.mjv_initGeom(
+        geom,
+        type=mujoco.mjtGeom.mjGEOM_ARROW,
+        size=[radius, radius, length / 2],
+        pos=(np.array(pos) + end) / 2,
+        mat=_rotation_matrix(direction).flatten(),
+        rgba=np.array(rgba, dtype=np.float32),
+    )
+    scene.ngeom += 1
 
 from pynput import keyboard
 class KeyboardController:

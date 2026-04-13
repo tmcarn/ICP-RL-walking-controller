@@ -7,6 +7,7 @@ import os
 import time
 from obs_manager import ObservationManager, CommandGenerator, PushDisturbance
 from icp_controller import WalkingController
+from terrain import generate_terrain_hfield
 
 import utils
 
@@ -29,7 +30,14 @@ class WalkerEnv(gym.Env):
     def __init__(self, render_mode="rgb_array", base_controller_only=False):
         xml_path = os.path.join("xml_files", "biped_3d_5dof_leg.xml")
         self.model = mujoco.MjModel.from_xml_path(xml_path)
+        self.model.hfield_data[:] = 0.5 # Crashes otherwise
+
         self.data = mujoco.MjData(self.model)
+
+        # Generate terrain heightfield
+        generate_terrain_hfield(self.model)
+        origin_height = self.model.hfield_data[0]
+        self.data.qpos[2] = origin_height + 1.5  # Set initial height above terrain
 
         self.base_controller_only = base_controller_only
 
@@ -52,6 +60,7 @@ class WalkerEnv(gym.Env):
         Joint Positions (10, 5)
         Joint Velocity (10,)
         Previous Action (10,)
+        Current Base Action (10,)
         '''
         self.obs_hist = 5 # Observation contains previous 5 joint pos, base ang_vel, and base_orientation
 
@@ -89,9 +98,9 @@ class WalkerEnv(gym.Env):
         self.render_mode = render_mode
         self._viewer = None
         self._renderer = None
+        self._new_terrain_rendered = False
 
         self.prev_action = np.zeros(self.n_joints, dtype=np.float32)
-
 
     def reset(self, seed=None, options=None):
         """Reset the environment to an initial state."""
@@ -99,11 +108,21 @@ class WalkerEnv(gym.Env):
 
         # Reset MuJoCo state
         mujoco.mj_resetData(self.model, self.data)
+        self.model.hfield_data[:] = 0.5 # Crashes otherwise
+
         mujoco.mj_forward(self.model, self.data)
+
+        # Reset Terrain
+        generate_terrain_hfield(self.model)
+        self._new_terrain_rendered = False
+
+        origin_height = self.model.hfield_data[0]
+        self.data.qpos[2] = origin_height + 1.5  # Set initial height above terrain
 
         self.command_manager.reset()
         cmd_vel = self.command_manager.step()
 
+        self.prev_action = np.zeros_like(self.prev_action)
         self.obs_manager.reset()
         self.obs_manager.warmup(self.data, cmd_vel)
 
@@ -120,6 +139,7 @@ class WalkerEnv(gym.Env):
         return observation, info
 
     def step(self, action):
+        "Stepping"
         self._step_count += 1
         action = np.clip(action, -1.0, 1.0)
 
@@ -127,12 +147,13 @@ class WalkerEnv(gym.Env):
         if self.base_controller_only:
             action = np.zeros_like(action)
 
+
         # Get command velocity for this step
-        self._cmd_vel = - self.command_manager.step()
+        self._cmd_vel = self.command_manager.step()
         dx_des, dy_des, dz_omega = self._cmd_vel
 
         # Compute base controller output once per step
-        icp_ctrl = self.controller.step(
+        base_action = self.controller.step(
             t=self.data.time,
             dx_des=dx_des, # Negated in original repo for some reason
             dy_des=dy_des, # Negated in original repo for some reason
@@ -140,13 +161,12 @@ class WalkerEnv(gym.Env):
         )
 
         # Add residual
-        ctrl = icp_ctrl + (self.residual_scale * action)
+        ctrl = base_action + (self.residual_scale * action)
 
         # Perturbation
-        push = self.push_disturbance.step()    # <-- here
+        push = self.push_disturbance.step()
         if push is not None:
             self.data.qvel[0:2] += push
-
 
         # Run substeps
         for _ in range(self.decimation):
@@ -163,7 +183,7 @@ class WalkerEnv(gym.Env):
 
         # Termination
         termination_penalty = 0
-        terminated = self._check_terminated()
+        terminated = self._check_terminated() or self._check_sim_unstable()
         if terminated:
             termination_penalty = -100
             reward += termination_penalty
@@ -193,7 +213,7 @@ class WalkerEnv(gym.Env):
         # Forward/lateral velocity tracking
         vel_error_x = (lin_vel_body[0] - dx_des) ** 2
         vel_error_y = (lin_vel_body[1] - dy_des) ** 2
-        r_velocity = np.exp(-2.0 * (vel_error_x + vel_error_y))
+        r_velocity = np.exp(-5.0 * (vel_error_x + vel_error_y))
 
         total_lin_vel_error = np.sqrt(vel_error_x + vel_error_y)
 
@@ -218,7 +238,7 @@ class WalkerEnv(gym.Env):
         # Alive bonus
         r_alive = 0.5
 
-        reward = r_velocity + 0.5 * r_orientation + 0.3 * r_yaw + r_action_smooth  + 0.2 * r_residual + r_alive
+        reward = r_velocity + 0.5 * r_orientation + 0.3 * r_yaw + r_action_smooth  + 0.1 * r_residual + r_alive
 
         info = {
             "reward/total_reward": reward,
@@ -261,13 +281,18 @@ class WalkerEnv(gym.Env):
         up_vec = torso_mat[:, 2]  # z-column of rotation matrix
         upright = up_vec[2]  # dot product with world z
 
-        # TODO: Add termination condition for excessive body velocity
-
         if torso_height < 0.5:
             return True
         if upright < 0.3:  # tilted more than ~70 degrees
             return True
 
+        return False
+    
+    def _check_sim_unstable(self):
+        if np.any(np.isnan(self.data.qacc)) or np.any(np.isinf(self.data.qacc)):
+            return True
+        if np.any(np.abs(self.data.qvel) > 100):
+            return True
         return False
 
     def _get_obs(self, cmd_vel, prev_action):
@@ -279,43 +304,61 @@ class WalkerEnv(gym.Env):
             if self._viewer is None:
                 self._viewer = mujoco.viewer.launch_passive(self.model, self.data)
 
-            # Clear previous debug geoms
+            if not self._new_terrain_rendered:
+                self._viewer.update_hfield(0)
+                self._new_terrain_rendered = True
+
             self._viewer._user_scn.ngeom = 0
-
-            torso_id = mujoco.mj_name2id(
-                self.model, mujoco.mjtObj.mjOBJ_BODY, "torso"
-            )
-            torso_pos = self.data.xpos[torso_id]
-
-            lin_vel_body, ang_vel_body = self._get_body_vel()
-
-            lin_vel_body[2] = 0 # Ignore Z component
-
-            utils.draw_arrow(
-                self._viewer,
-                pos=torso_pos,
-                direction=lin_vel_body,
-                radius=0.08,
-                rgba=[0, 1, 0, 0.8],
-            )
-
-            # Commanded velocity (blue)
-            if hasattr(self, '_cmd_vel'):
-                cmd_dir = 4 * np.array([
-                    self._cmd_vel[0],
-                    self._cmd_vel[1],
-                    0.0,
-                ])
-                utils.draw_arrow(
-                    self._viewer,
-                    pos=torso_pos,  # offset up slightly so they don't overlap
-                    direction=cmd_dir,
-                    radius=0.08,
-                    rgba=[0, 0.5, 1, 0.8],
-                )
-
+            self._draw_debug_arrows(self._viewer._user_scn)
             self._viewer.sync()
             return None
+
+        elif self.render_mode == "rgb_array":
+            if not self._new_terrain_rendered:
+                # Recreate renderer to pick up new heightfield
+                if self._renderer is not None:
+                    self._renderer.close()
+                self._renderer = None
+                self._new_terrain_rendered = True
+
+            if self._renderer is None:
+                self._renderer = mujoco.Renderer(self.model, height=480, width=640)
+
+            cam_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_CAMERA, "track")
+            self._renderer.update_scene(self.data, camera=cam_id)
+            return self._renderer.render()
+
+
+    def _draw_debug_arrows(self, scene):
+        torso_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "torso")
+        torso_pos = self.data.xpos[torso_id]
+
+        lin_vel_body, ang_vel_body = self._get_body_vel()
+        lin_vel_body[2] = 0
+
+        R_t = self.data.xmat[torso_id].reshape(3, 3)
+
+        # Actual velocity (green)
+        lin_vel_world = R_t @ lin_vel_body
+        utils.draw_arrow(
+            scene,
+            pos=torso_pos,
+            direction=lin_vel_world,
+            radius=0.08,
+            rgba=[0, 1, 0, 0.8],
+        )
+
+        # Commanded velocity (blue)
+        
+        cmd_body = np.array([self._cmd_vel[0], self._cmd_vel[1], 0.0])
+        cmd_world = R_t @ cmd_body
+        utils.draw_arrow(
+            scene,
+            pos=torso_pos,
+            direction=4 * cmd_world,
+            radius=0.08,
+            rgba=[0, 0.5, 1, 0.8],
+        )
 
     def close(self):
         if self._viewer is not None:
@@ -328,17 +371,20 @@ class WalkerEnv(gym.Env):
         super().close()  
 
 
+if __name__ == '__main__':
+    env = WalkerEnv(render_mode="human")
 
-# env = WalkerEnv(render_mode="human")
+    try:
+        while True:
+            obs, r, term, trunc, info = env.step(np.zeros(10))
+            env.render()
+            time.sleep(1 / 50)  # match your 50Hz control rate
+            if term:
+                env.reset()
 
-# while True:
-#     obs, r, term, trunc, info = env.step(np.zeros(10))
-#     env.render()
-#     time.sleep(1 / 50)  # match your 50Hz control rate
-#     if term:
-#         env.reset()
+            if trunc:
+                break
 
-#     if trunc:
-#         break
+    finally:
+        env.close()
 
-# print(env.data.time)

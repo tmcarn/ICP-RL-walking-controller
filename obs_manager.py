@@ -101,8 +101,6 @@ class ObservationManager():
         for _ in range(self.history_length):
             self.update(velocity_command, action)
 
-
-
     @staticmethod
     def _projected_gravity(quat):
         """
@@ -137,8 +135,8 @@ class CommandGenerator:
 
     def _sample(self):
         self.cmd = np.array([
-            np.random.uniform(-0.5, 0.5),   # x_lin (forward/backward)
-            np.random.uniform(-0.2, 0.2),   # y_lin (lateral)
+            -np.random.uniform(-0.5, 0.5),   # x_lin (forward/backward)
+            -np.random.uniform(-0.2, 0.2),   # y_lin (lateral)
             np.random.uniform(-1.0, 1.0),   # z_ang (yaw rate)
         ])
 
