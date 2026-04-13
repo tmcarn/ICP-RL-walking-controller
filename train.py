@@ -55,7 +55,7 @@ eval_callback = EvalCallback(
 
 checkpoint_callback = CheckpointCallback(
     save_freq=100_000,
-    save_path="./checkpoints/",
+    save_path="./checkpoints/v2",
     name_prefix="residual_rl",
 )
 
@@ -85,7 +85,7 @@ try:
         gamma=0.99,
         gae_lambda=0.95,
         clip_range=linear_schedule(0.1, 0.02),
-        ent_coef=0.02,
+        ent_coef=0.01,
         vf_coef=0.5,
         max_grad_norm=0.5,
         policy_kwargs=dict(
