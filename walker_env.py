@@ -7,7 +7,7 @@ import os
 import time
 from obs_manager import ObservationManager, CommandGenerator, PushDisturbance
 from icp_controller import WalkingController
-from terrain import generate_terrain_hfield
+from terrain import generate_terrain_hfield, generate_platforms
 
 import utils
 
@@ -35,9 +35,12 @@ class WalkerEnv(gym.Env):
         self.data = mujoco.MjData(self.model)
 
         # Generate terrain heightfield
-        generate_terrain_hfield(self.model)
-        origin_height = self.model.hfield_data[0]
-        self.data.qpos[2] = origin_height + 1.5  # Set initial height above terrain
+        # generate_terrain_hfield(self.model)
+        generate_platforms(self.model)
+        nrow = self.model.hfield_nrow[0]
+        ncol = self.model.hfield_ncol[0]
+        origin_height = self.model.hfield_data[(nrow // 2) * ncol + (ncol // 2)]
+        self.data.qpos[2] = origin_height + 1.4  # Set initial height above terrain
 
         self.base_controller_only = base_controller_only
 
@@ -113,11 +116,14 @@ class WalkerEnv(gym.Env):
         mujoco.mj_forward(self.model, self.data)
 
         # Reset Terrain
-        generate_terrain_hfield(self.model)
+        # generate_terrain_hfield(self.model)
+        generate_platforms(self.model)
         self._new_terrain_rendered = False
 
-        origin_height = self.model.hfield_data[0]
-        self.data.qpos[2] = origin_height + 1.5  # Set initial height above terrain
+        nrow = self.model.hfield_nrow[0]
+        ncol = self.model.hfield_ncol[0]
+        origin_height = self.model.hfield_data[(nrow // 2) * ncol + (ncol // 2)]
+        self.data.qpos[2] = origin_height + 1.4  # Set initial height above terrain
 
         self.command_manager.reset()
         cmd_vel = self.command_manager.step()

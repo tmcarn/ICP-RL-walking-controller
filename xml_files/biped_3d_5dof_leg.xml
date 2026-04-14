@@ -2,10 +2,9 @@
     <compiler angle="degree"/>
 
     <option timestep="0.0005"/>
-    <size nconmax="200" njmax="600"/>
 
     <asset>
-        <hfield name="terrain" nrow="64" ncol="64" size="16 16 0.5 0.01"/>
+        <hfield name="terrain" nrow="128" ncol="128" size="16 16 0.5 0.01"/>
     </asset>
 
     <worldbody>
