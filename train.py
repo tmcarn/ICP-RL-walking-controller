@@ -56,7 +56,7 @@ if __name__ == "__main__":
 
     checkpoint_callback = CheckpointCallback(
         save_freq=100_000,
-        save_path="./checkpoints/terrain_walker_v1",
+        save_path="./checkpoints/randomized_terrain_v2",
         name_prefix="residual_rl",
     )
 
@@ -100,7 +100,7 @@ if __name__ == "__main__":
         steps_per_env = 1_500_000
         model.learn(total_timesteps=steps_per_env * num_envs,
                     callback=[checkpoint_callback, RewardLoggingCallback(), eval_callback],
-                    tb_log_name="redidual_rl")
+                    tb_log_name="residual_rl")
     finally:
         train_env.close()
         eval_env.close()

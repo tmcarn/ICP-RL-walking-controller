@@ -5,9 +5,9 @@ import mujoco.viewer
 import numpy as np
 import os
 import time
-from obs_manager import ObservationManager, CommandGenerator, PushDisturbance
+from obs_manager import ObservationManager, CommandGenerator, PushDisturbance, HeightScanner
 from icp_controller import WalkingController
-from terrain import generate_terrain_hfield, generate_platforms
+from terrain import generate_terrain
 
 import utils
 
@@ -27,7 +27,7 @@ class WalkerEnv(gym.Env):
     control_freq = 50 # Hz
 
 
-    def __init__(self, render_mode="rgb_array", base_controller_only=False):
+    def __init__(self, render_mode="rgb_array", terrain_types=["flat", "moderate", "rough"], terrain_weights=None):
         xml_path = os.path.join("xml_files", "biped_3d_5dof_leg.xml")
         self.model = mujoco.MjModel.from_xml_path(xml_path)
         self.model.hfield_data[:] = 0.5 # Crashes otherwise
@@ -35,14 +35,14 @@ class WalkerEnv(gym.Env):
         self.data = mujoco.MjData(self.model)
 
         # Generate terrain heightfield
-        # generate_terrain_hfield(self.model)
-        generate_platforms(self.model)
+        self.terrain_types = terrain_types
+        self.terrain_weights = terrain_weights
+        generate_terrain(self.model, terrain_types=self.terrain_types, terrain_weights=self.terrain_weights)
+        
         nrow = self.model.hfield_nrow[0]
         ncol = self.model.hfield_ncol[0]
         origin_height = self.model.hfield_data[(nrow // 2) * ncol + (ncol // 2)]
-        self.data.qpos[2] = origin_height + 1.4  # Set initial height above terrain
-
-        self.base_controller_only = base_controller_only
+        self.data.qpos[2] = origin_height + 1.6  # Set initial height above terrain
 
         self.n_joints = 10 # Hip: (Roll, Pitch, Yaw), Knee: Pitch, Ankle: Pitch
 
@@ -55,7 +55,7 @@ class WalkerEnv(gym.Env):
             dtype=np.float32,
         )
 
-        # --- Observation Space ---
+         # --- Observation Space ---
         '''
         Base Angular Velocity (3, 5)
         Base Orientation (3, 5)
@@ -63,9 +63,9 @@ class WalkerEnv(gym.Env):
         Joint Positions (10, 5)
         Joint Velocity (10,)
         Previous Action (10,)
-        Current Base Action (10,)
+        Height Map (grid_x, grid_y)
         '''
-        self.obs_hist = 5 # Observation contains previous 5 joint pos, base ang_vel, and base_orientation
+        self.obs_hist = 5
 
         self.obs_dim = 103
         self.observation_space = gym.spaces.Box(
@@ -88,8 +88,6 @@ class WalkerEnv(gym.Env):
         self.controller = WalkingController(self.model, self.data, t0=0.0)
 
         self.push_disturbance = PushDisturbance(self.dt)
-
-        
 
         self._step_count = 0
 
@@ -116,14 +114,13 @@ class WalkerEnv(gym.Env):
         mujoco.mj_forward(self.model, self.data)
 
         # Reset Terrain
-        # generate_terrain_hfield(self.model)
-        generate_platforms(self.model)
+        generate_terrain(self.model, terrain_types=self.terrain_types, terrain_weights=self.terrain_weights)
         self._new_terrain_rendered = False
 
         nrow = self.model.hfield_nrow[0]
         ncol = self.model.hfield_ncol[0]
         origin_height = self.model.hfield_data[(nrow // 2) * ncol + (ncol // 2)]
-        self.data.qpos[2] = origin_height + 1.4  # Set initial height above terrain
+        self.data.qpos[2] = origin_height + 1.6  # Set initial height above terrain
 
         self.command_manager.reset()
         cmd_vel = self.command_manager.step()
@@ -145,13 +142,8 @@ class WalkerEnv(gym.Env):
         return observation, info
 
     def step(self, action):
-        "Stepping"
         self._step_count += 1
         action = np.clip(action, -1.0, 1.0)
-
-        # For Baseline with No RL
-        if self.base_controller_only:
-            action = np.zeros_like(action)
 
 
         # Get command velocity for this step
@@ -374,11 +366,61 @@ class WalkerEnv(gym.Env):
             self._renderer.close()
             self._renderer = None
 
-        super().close()  
+        super().close() 
+
+class TerrainAwareWalkerEnv(WalkerEnv):
+    def __init__(self, render_mode="rgb_array", 
+                 terrain_types=["flat", "moderate", "rough"], 
+                 terrain_weights=None,
+                 grid_size=8,
+                 extent=1):
+        
+        super().__init__(render_mode, terrain_types, terrain_weights)
+
+        self.hfield_grid_size = grid_size
+        self.hfield_extent = extent
+        self._hfield_world_points = None
+
+        self.height_scanner = HeightScanner(self.model, self.data, self.hfield_extent, self.hfield_grid_size)
+
+         # --- Observation Space ---
+        '''
+        Base Angular Velocity (3, 5)
+        Base Orientation (3, 5)
+        Command Vel (3,): [x_lin, y_lin, z_ang]
+        Joint Positions (10, 5)
+        Joint Velocity (10,)
+        Previous Action (10,)
+        Height Map (grid_x, grid_y)
+        '''
+        self.obs_dim = 103 + (self.hfield_grid_size**2)
+        self.observation_space = gym.spaces.Box(
+            low=-np.inf,
+            high=np.inf,
+            shape=(self.obs_dim,),
+            dtype=np.float32,
+        )
+
+    def _get_obs(self, cmd_vel, prev_action):
+        ''' Adds Heightfield to Observation'''
+        obs = super()._get_obs(cmd_vel, prev_action)
+        heights, self._hfield_world_points = self.height_scanner.sample_heightfield()
+        return np.concatenate([obs, heights])
+    
+    def _draw_debug_arrows(self, scene):
+        super()._draw_debug_arrows(scene)
+ 
+        if self._hfield_world_points is not None:
+            torso_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "torso")
+            robot_z = self.data.xpos[torso_id][2]
+            self.height_scanner.draw_heightfield_samples(scene, self._hfield_world_points, robot_z)
+ 
+
+
 
 
 if __name__ == '__main__':
-    env = WalkerEnv(render_mode="human")
+    env = TerrainAwareWalkerEnv(render_mode="human", terrain_types=["platforms"])
 
     try:
         while True:
