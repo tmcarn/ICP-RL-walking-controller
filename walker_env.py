@@ -190,12 +190,13 @@ class WalkerEnv(gym.Env):
         vel_error_y = (lin_vel_body[1] - dy_des) ** 2
         r_velocity = np.exp(-2.0 * (vel_error_x + vel_error_y))
 
-        total_lin_vel_error = np.sqrt(vel_error_x + vel_error_y)
+        total_lin_vel_error = float(np.sqrt(vel_error_x + vel_error_y))
 
         # Yaw rate tracking
         yaw_vel_body = ang_vel_body[2]
         yaw_error = (yaw_vel_body - dz_omega) ** 2
         r_yaw = np.exp(-2.0 * yaw_error)
+        total_yaw_vel_error = float(np.sqrt(yaw_error))
 
         # Action penalty: discourage large residuals
         r_action = -0.05 * np.sum(action ** 2)
@@ -216,13 +217,16 @@ class WalkerEnv(gym.Env):
         reward = r_velocity + 0.3 * r_yaw + r_action + r_smooth + r_upright + r_alive
 
         info = {
-            "reward/total":    reward,
-            "reward/velocity": r_velocity,
-            "reward/yaw":      0.3 * r_yaw,
-            "reward/action":   r_action,
-            "reward/smooth":   r_smooth,
-            "reward/upright":  r_upright,
-            "reward/alive":    r_alive,
+            "reward/total":              reward,
+            "reward/velocity":           r_velocity,
+            "reward/yaw":                0.3 * r_yaw,
+            "reward/action":             r_action,
+            "reward/smooth":             r_smooth,
+            "reward/upright":            r_upright,
+            "reward/alive":              r_alive,
+            "reward/total_lin_vel_error": total_lin_vel_error,
+            "reward/total_yaw_vel_error": total_yaw_vel_error,
+            "reward/orientation":        float(upright),
         }
 
         return reward, info

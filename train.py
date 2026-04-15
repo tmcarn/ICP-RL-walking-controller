@@ -105,6 +105,23 @@ class SyncNormCallback(BaseCallback):
         return True
 
 
+class SaveNormCallback(BaseCallback):
+    """Save VecNormalize stats to disk alongside each checkpoint."""
+    def __init__(self, train_env: VecNormalize, save_path: str, save_freq: int, verbose=0):
+        super().__init__(verbose)
+        self.train_env = train_env
+        self.save_path = save_path
+        self.save_freq = save_freq
+        self._last_save = 0
+
+    def _on_step(self) -> bool:
+        if self.num_timesteps - self._last_save >= self.save_freq:
+            path = os.path.join(self.save_path, f"vecnormalize_{self.num_timesteps}_steps.pkl")
+            self.train_env.save(path)
+            self._last_save = self.num_timesteps
+        return True
+
+
 
 def linear_schedule(initial: float, final: float = 0.0):
     def func(progress_remaining: float) -> float:
@@ -136,10 +153,13 @@ try:
     # Start push disturbance at minimum magnitude
     train_env.env_method("set_push_magnitude", 0.3)
 
+    save_norm_callback = SaveNormCallback(train_env, save_path=f"{run_dir}/checkpoints/", save_freq=100_000)
+
     steps_per_env = 1_500_000
     model.learn(total_timesteps=steps_per_env * num_envs,
-                callback=[checkpoint_callback, RewardLoggingCallback(), SyncNormCallback(train_env, eval_env), CurriculumCallback(train_env), eval_callback],
+                callback=[checkpoint_callback, RewardLoggingCallback(), SyncNormCallback(train_env, eval_env), CurriculumCallback(train_env), eval_callback, save_norm_callback],
                 tb_log_name="initial_trials")
 finally:
+    train_env.save(f"{run_dir}/vecnormalize_final.pkl")
     train_env.close()
     eval_env.close()
