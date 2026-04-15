@@ -297,6 +297,13 @@ class WalkerEnv(gym.Env):
         self.obs_manager.update(cmd_vel, prev_action) # Updates History Buffers
         return self.obs_manager.get_obs()
     
+    def set_terrain_config(self, terrain_types, terrain_weights):
+        self.terrain_types = terrain_types
+        self.terrain_weights = terrain_weights
+
+    def set_cmd_duration(self, duration):
+        self.command_manager.change_interval = duration
+    
     def render(self):
         if self.render_mode == "human":
             if self._viewer is None:

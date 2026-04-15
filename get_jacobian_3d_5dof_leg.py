@@ -58,5 +58,3 @@ def get_pos_3d_jacobians(q):
     J_r = Jr_lin[:, right_cols]
     J_l = Jl_lin[:, left_cols]
     return J_r, J_l
-
-print(get_pos_3d_jacobians(q))

@@ -5,28 +5,32 @@ TERRAIN_LEVELS = {
         "type": "hfield",
         "scale": 12,
         "octaves": 2,
-        "persistence": 0.3,
+        "persistence": 0.25,
         "height_scale": 0.1,
     },
+
     "moderate": {
         "type": "hfield",
         "scale": 8,
         "octaves": 4,
-        "persistence": 0.6,
+        "persistence": 0.5,
         "height_scale": 0.5,
     },
+
     "rough": {
         "type": "hfield",
         "scale": 4,
         "octaves": 6,
-        "persistence": 0.8,
+        "persistence": 0.75,
         "height_scale": 0.8,
     },
+
     "platforms": {
         "type": "platforms",
         "stone_height": 1,
         "stone_radius": 4,
         "gap": 1,
+        "cmd_duration": 8, # Longer Traversals
     },
 }
 

@@ -1,11 +1,12 @@
 from stable_baselines3 import PPO
-from walker_env import WalkerEnv
+from walker_env import WalkerEnv, TerrainAwareWalkerEnv
 from tqdm import tqdm
 import numpy as np
 
+from matplotlib import pyplot as plt
 
-def evaluate(policy=None, total_steps=100_000):
-    eval_env = WalkerEnv(render_mode=None)
+
+def evaluate(eval_env, policy=None, total_steps=1_000):
     obs, _ = eval_env.reset()
 
     total_terminations = 0
@@ -23,8 +24,11 @@ def evaluate(policy=None, total_steps=100_000):
 
         obs, reward, terminated, truncated, info = eval_env.step(action)
 
-        lin_vel_errors.append(info["reward/total_lin_vel_error"])
-        yaw_vel_errors.append(info["reward/total_yaw_vel_error"])
+        if info["reward/total_lin_vel_error"] < 10: # Filters out Simulation Divergence
+            lin_vel_errors.append(info["reward/total_lin_vel_error"])
+        
+        if info["reward/total_yaw_vel_error"] < 10: # Filters out Simulation Divergence
+            yaw_vel_errors.append(info["reward/total_yaw_vel_error"])
         orientations.append(info["reward/orientation"])
         current_episode_len += 1
 
@@ -45,7 +49,6 @@ def evaluate(policy=None, total_steps=100_000):
 
     return {
         "total_steps": total_steps,
-        "total_episodes": len(episode_lengths),
         "total_terminations": total_terminations,
         "lin_vel_error_mean": lin_arr.mean(),
         "lin_vel_error_std": lin_arr.std(),
@@ -57,59 +60,122 @@ def evaluate(policy=None, total_steps=100_000):
         "orientation_std": ori_arr.std(),
         "orientation_min": ori_arr.min(),
         "episode_length_mean": ep_arr.mean(),
-        "episode_length_std": ep_arr.std(),
-        "episode_length_min": ep_arr.min(),
-        "episode_length_max": ep_arr.max(),
+        "episode_length_std": ep_arr.std()
     }
 
 
-def print_comparison(base_stats, residual_stats):
-    header = f"{'Metric':<30} {'Base':>20} {'Residual':>20} {'Delta':>15}"
-    print("=" * 85)
-    print("CONTROLLER COMPARISON")
-    print("=" * 85)
-    print(header)
-    print("-" * 85)
+def plot_terrain_comparison(results, save_path=None):
+    """
+    Plot 2x2 grouped bar charts comparing base vs policy across terrain types.
+    Top row: episode length, terminations
+    Bottom row: linear vel error, yaw vel error
+    """
+    terrains = list(results.keys())
+    x = np.arange(len(terrains))
+    width = 0.3
+ 
+    fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+ 
+    # --- Top left: Episode length ---
+    ax = axes[0, 0]
+    base_vals = [results[t]["base"]["episode_length_mean"] for t in terrains]
+    policy_vals = [results[t]["policy"]["episode_length_mean"] for t in terrains]
+    base_err = [results[t]["base"]["episode_length_std"] for t in terrains]
+    policy_err = [results[t]["policy"]["episode_length_std"] for t in terrains]
+ 
+    ax.bar(x - width / 2, base_vals, width, label="Base controller",
+           color="tab:gray", yerr=base_err, capsize=4, error_kw={"linewidth": 1.2})
+    ax.bar(x + width / 2, policy_vals, width, label="Residual RL policy",
+           color="tab:blue", yerr=policy_err, capsize=4, error_kw={"linewidth": 1.2})
+    ax.set_ylabel("Steps", fontsize=11)
+    ax.set_title("Episode length", fontsize=12, fontweight="bold")
+    ax.set_xticks(x)
+    ax.set_xticklabels([t.capitalize() for t in terrains], fontsize=11)
+    ax.legend(fontsize=9)
+    ax.grid(axis="y", alpha=0.3)
+    ax.set_axisbelow(True)
+ 
+    # --- Top right: Terminations ---
+    ax = axes[0, 1]
+    base_vals = [results[t]["base"]["total_terminations"] for t in terrains]
+    policy_vals = [results[t]["policy"]["total_terminations"] for t in terrains]
+ 
+    ax.bar(x - width / 2, base_vals, width, label="Base controller", color="tab:gray")
+    ax.bar(x + width / 2, policy_vals, width, label="Residual RL policy", color="tab:blue")
+    ax.set_ylabel("# of terminations", fontsize=11)
+    ax.set_title("Terminations", fontsize=12, fontweight="bold")
+    ax.set_xticks(x)
+    ax.set_xticklabels([t.capitalize() for t in terrains], fontsize=11)
+    ax.legend(fontsize=9)
+    ax.grid(axis="y", alpha=0.3)
+    ax.set_axisbelow(True)
+ 
+    # --- Bottom left: Linear velocity error ---
+    ax = axes[1, 0]
+    base_vals = [results[t]["base"]["lin_vel_error_mean"] for t in terrains]
+    policy_vals = [results[t]["policy"]["lin_vel_error_mean"] for t in terrains]
+    base_err = [results[t]["base"]["lin_vel_error_std"] for t in terrains]
+    policy_err = [results[t]["policy"]["lin_vel_error_std"] for t in terrains]
+ 
+    ax.bar(x - width / 2, base_vals, width, label="Base controller",
+           color="tab:gray", yerr=base_err, capsize=4, error_kw={"linewidth": 1.2})
+    ax.bar(x + width / 2, policy_vals, width, label="Residual RL policy",
+           color="tab:blue", yerr=policy_err, capsize=4, error_kw={"linewidth": 1.2})
+    ax.set_ylabel("Error (m/s)", fontsize=11)
+    ax.set_title("Linear velocity error", fontsize=12, fontweight="bold")
+    ax.set_xticks(x)
+    ax.set_xticklabels([t.capitalize() for t in terrains], fontsize=11)
+    ax.legend(fontsize=9)
+    ax.grid(axis="y", alpha=0.3)
+    ax.set_axisbelow(True)
+ 
+    # --- Bottom right: Yaw velocity error ---
+    ax = axes[1, 1]
+    base_vals = [results[t]["base"]["yaw_vel_error_mean"] for t in terrains]
+    policy_vals = [results[t]["policy"]["yaw_vel_error_mean"] for t in terrains]
+    base_err = [results[t]["base"]["yaw_vel_error_std"] for t in terrains]
+    policy_err = [results[t]["policy"]["yaw_vel_error_std"] for t in terrains]
+ 
+    ax.bar(x - width / 2, base_vals, width, label="Base controller",
+           color="tab:gray", yerr=base_err, capsize=4, error_kw={"linewidth": 1.2})
+    ax.bar(x + width / 2, policy_vals, width, label="Residual RL policy",
+           color="tab:blue", yerr=policy_err, capsize=4, error_kw={"linewidth": 1.2})
+    ax.set_ylabel("Error (rad/s)", fontsize=11)
+    ax.set_title("Yaw velocity error", fontsize=12, fontweight="bold")
+    ax.set_xticks(x)
+    ax.set_xticklabels([t.capitalize() for t in terrains], fontsize=11)
+    ax.legend(fontsize=9)
+    ax.grid(axis="y", alpha=0.3)
+    ax.set_axisbelow(True)
+ 
+    fig.suptitle("Controller comparison across terrain types", fontsize=14, fontweight="bold")
+    fig.tight_layout()
+ 
+    if save_path:
+        fig.savefig(save_path, dpi=200, bbox_inches="tight")
+        print(f"Saved to {save_path}")
+ 
+    plt.show()
+ 
 
-    rows = [
-        ("Total Episodes",      "total_episodes",      None,                  "d"),
-        ("Terminations",        "total_terminations",  None,                  "d"),
-        ("Ep Length",           "episode_length_mean", "episode_length_std",  ".1f"),
-        ("Lin Vel Error",      "lin_vel_error_mean",  "lin_vel_error_std",   ".4f"),
-        ("Yaw Vel Error",      "yaw_vel_error_mean",  "yaw_vel_error_std",   ".4f"),
-        ("Orientation",        "orientation_mean",     "orientation_std",     ".4f"),
-    ]
+def run_terrain_comparison(terrain_types, model_path):
+    eval_data = {}
+    policy = PPO.load(model_path)
+    for terrain in terrain_types:
+        print(f"Evaluating with {terrain} terrain...")
+        eval_env = TerrainAwareWalkerEnv(render_mode=None, terrain_types=[terrain])
+        base_evaluation = evaluate(eval_env)
+        policy_evaluation = evaluate(eval_env, policy)
 
-    for label, mean_key, std_key, fmt in rows:
-        if mean_key is None:
-            b_str = f"{base_stats['episode_length_min']}/{base_stats['episode_length_max']}"
-            r_str = f"{residual_stats['episode_length_min']}/{residual_stats['episode_length_max']}"
-            print(f"{label:<30} {b_str:>20} {r_str:>20} {'':>15}")
-        elif fmt == "d":
-            b = base_stats[mean_key]
-            r = residual_stats[mean_key]
-            print(f"{label:<30} {b:>20d} {r:>20d} {r - b:>+15d}")
-        elif std_key:
-            b_m, b_s = base_stats[mean_key], base_stats[std_key]
-            r_m, r_s = residual_stats[mean_key], residual_stats[std_key]
-            b_str = f"{b_m:{fmt}} ± {b_s:{fmt}}"
-            r_str = f"{r_m:{fmt}} ± {r_s:{fmt}}"
-            delta = r_m - b_m
-            print(f"{label:<30} {b_str:>20} {r_str:>20} {delta:>+15{fmt}}")
-        else:
-            b = base_stats[mean_key]
-            r = residual_stats[mean_key]
-            print(f"{label:<30} {b:>20{fmt}} {r:>20{fmt}} {r - b:>+15{fmt}}")
+        eval_data[terrain] = {}
+        eval_data[terrain]["base"] = base_evaluation
+        eval_data[terrain]["policy"] = policy_evaluation
 
-    print("=" * 85)
+    return eval_data
 
-model_path = "./checkpoints/terrain_walker_v1/residual_rl_11000000_steps.zip"
-policy = PPO.load(model_path)
 
-print("\nEvaluating residual controller...")
-residual_stats = evaluate(policy)
 
-print("\nEvaluating base controller...")
-base_stats = evaluate()
+model_path = "./checkpoints/terrain_aware_v3_curriculum/residual_rl_5000000_steps.zip" # Best So Far
 
-print_comparison(base_stats, residual_stats)
+results = run_terrain_comparison(["flat", "moderate", "rough", "platforms"], model_path)
+plot_terrain_comparison(results, save_path="./plots/Controller_Comparison.png")

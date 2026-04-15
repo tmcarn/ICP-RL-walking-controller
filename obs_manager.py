@@ -136,8 +136,8 @@ class CommandGenerator:
 
     def _sample(self):
         self.cmd = np.array([
-            -np.random.uniform(-0.5, 0.5),   # x_lin (forward/backward)
-            -np.random.uniform(-0.2, 0.2),   # y_lin (lateral)
+            -np.random.uniform(-0.75, 0.75),   # x_lin (forward/backward) (originally 0.5)
+            -np.random.uniform(-0.3, 0.3),   # y_lin (lateral) (originally 0.3)
             np.random.uniform(-1.0, 1.0),   # z_ang (yaw rate)
         ])
 
