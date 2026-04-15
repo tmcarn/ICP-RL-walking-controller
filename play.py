@@ -1,11 +1,11 @@
 import imageio
 from stable_baselines3 import PPO
-from walker_env import WalkerEnv
+from walker_env import WalkerEnv, TerrainAwareWalkerEnv
 
 
-model_path = "./checkpoints/v2/residual_rl_7000000_steps.zip"
+model_path = "./checkpoints/terrain_aware_v1/residual_rl_15000000_steps.zip"
 model = PPO.load(model_path)
-eval_env = WalkerEnv(render_mode="human")
+eval_env = TerrainAwareWalkerEnv(render_mode="human", terrain_types=["rough", "platforms"])
 eval_env.reset()
 
 duration = 30

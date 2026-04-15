@@ -6,16 +6,20 @@ from stable_baselines3.common.callbacks import EvalCallback
 from gymnasium.wrappers import RecordVideo
 import torch
 
-from walker_env import WalkerEnv
+from walker_env import WalkerEnv, TerrainAwareWalkerEnv
 
 import os
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
+terrain_types=["flat", "moderate", "rough", "platforms"]
+terrain_weights=[0.15, 0.15, 0.2, 0.5]
 
 
 def make_env(render_mode):
     def _init():
-        return WalkerEnv(render_mode=render_mode)
+        return TerrainAwareWalkerEnv(render_mode=render_mode, 
+                                     terrain_types=terrain_types,
+                                     terrain_weights=terrain_weights)
     return _init
 
 if __name__ == "__main__":
@@ -33,9 +37,12 @@ if __name__ == "__main__":
     )
 
     eval_env = DummyVecEnv([lambda: RecordVideo(
-        WalkerEnv(render_mode='rgb_array'),
+        TerrainAwareWalkerEnv(render_mode='rgb_array',
+                              terrain_types=terrain_types,
+                              terrain_weights=terrain_weights),
+
         video_folder="./videos/",
-        episode_trigger=lambda ep: ep % 2 == 0,
+        episode_trigger=lambda ep: ep % 10 == 0,
     )])
 
     eval_env = VecMonitor(eval_env)
@@ -56,7 +63,7 @@ if __name__ == "__main__":
 
     checkpoint_callback = CheckpointCallback(
         save_freq=100_000,
-        save_path="./checkpoints/randomized_terrain_v2",
+        save_path="./checkpoints/terrain_aware_v1",
         name_prefix="residual_rl",
     )
 
@@ -93,7 +100,7 @@ if __name__ == "__main__":
                 net_arch=dict(pi=[256, 256], vf=[256, 256]),
                 activation_fn=torch.nn.ELU,
             ),
-            tensorboard_log="./tb_logs/terrain_walker",
+            tensorboard_log="./tb_logs/terrain_aware_walker",
             verbose=1,
         )
         

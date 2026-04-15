@@ -3,7 +3,7 @@ import numpy as np
 TERRAIN_LEVELS = {
     "flat": {
         "type": "hfield",
-        "scale": 15,
+        "scale": 12,
         "octaves": 2,
         "persistence": 0.3,
         "height_scale": 0.1,
@@ -17,15 +17,15 @@ TERRAIN_LEVELS = {
     },
     "rough": {
         "type": "hfield",
-        "scale": 2,
+        "scale": 4,
         "octaves": 6,
         "persistence": 0.8,
-        "height_scale": 1.0,
+        "height_scale": 0.8,
     },
     "platforms": {
         "type": "platforms",
-        "stone_height": 0.8,
-        "stone_radius": 2,
+        "stone_height": 1,
+        "stone_radius": 4,
         "gap": 1,
     },
 }

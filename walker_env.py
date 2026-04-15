@@ -420,7 +420,7 @@ class TerrainAwareWalkerEnv(WalkerEnv):
 
 
 if __name__ == '__main__':
-    env = TerrainAwareWalkerEnv(render_mode="human", terrain_types=["platforms"])
+    env = TerrainAwareWalkerEnv(render_mode="human", terrain_types=["rough", "moderate"])
 
     try:
         while True:
