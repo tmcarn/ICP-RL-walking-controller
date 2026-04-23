@@ -1,27 +1,23 @@
 import imageio
 from stable_baselines3 import PPO
 from walker_env import WalkerEnv, TerrainAwareWalkerEnv
+import time
 
+if __name__ == '__main__':
+    model_path = "./checkpoints/terrain_walker_v1/residual_rl_15000000_steps.zip"
+    model = PPO.load(model_path)
+    eval_env = WalkerEnv(render_mode="human", terrain_types=["flat"], control_mode="joystick")
+    eval_env.reset()
 
-model_path = "./checkpoints/terrain_aware_v1/residual_rl_15000000_steps.zip"
-model = PPO.load(model_path)
-eval_env = TerrainAwareWalkerEnv(render_mode="human", terrain_types=["rough", "platforms"])
-eval_env.reset()
+    obs, _ = eval_env.reset()
+    while True:
+        action, _ = model.predict(obs)
+        obs, reward, terminated, truncated, info = eval_env.step(action)
 
-duration = 30
+        eval_env.render()
+        
+        if terminated or truncated:
+            obs, _ = eval_env.reset()
 
-timestep_count = int(duration / eval_env.dt)
-
-obs, _ = eval_env.reset()
-for _ in range(timestep_count):
-    action, _ = model.predict(obs)
-    obs, reward, terminated, truncated, info = eval_env.step(action)
-
-    eval_env.render()
-    
-    if terminated or truncated:
-        obs, _ = eval_env.reset()
-
-    import time
-    time.sleep(1 / eval_env.control_freq)
+        time.sleep(1 / eval_env.control_freq)
 

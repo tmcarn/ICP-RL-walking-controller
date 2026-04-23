@@ -136,7 +136,7 @@ class CommandGenerator:
 
     def _sample(self):
         self.cmd = np.array([
-            -np.random.uniform(-0.75, 0.75),   # x_lin (forward/backward) (originally 0.5)
+            -np.random.uniform(-0.5, 0.5),   # x_lin (forward/backward) (originally 0.5)
             -np.random.uniform(-0.3, 0.3),   # y_lin (lateral) (originally 0.3)
             np.random.uniform(-1.0, 1.0),   # z_ang (yaw rate)
         ])
@@ -225,6 +225,8 @@ class HeightScanner:
     
         # Make relative to robot height
         relative_heights = world_heights - robot_z
+
+        relative_heights = np.reshape(relative_heights, (1, self.grid_size, self.grid_size))
 
         # Build world points for visualization
         world_points = np.stack([world_x, world_y, world_heights], axis=1)

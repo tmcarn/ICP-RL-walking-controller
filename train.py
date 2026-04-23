@@ -1,13 +1,17 @@
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
 from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv, VecMonitor, VecNormalize
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import CheckpointCallback, BaseCallback, EvalCallback
 from gymnasium.wrappers import RecordVideo
 import torch
 
+from feature_extractor import TerrainCNNExtractor
+
 from walker_env import WalkerEnv, TerrainAwareWalkerEnv
 
-import os
-os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
 
 
 # ── Curricula ────────────────────────────────────────────────────────────────
@@ -15,20 +19,8 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 TERRAIN_CURRICULUM = [
     {
         "progress": 0.0,
-        "terrain_types": ["flat", "moderate"],
-        "terrain_weights": [0.7, 0.3],
-        "cmd_duration": 4,
-    },
-    {
-        "progress": 0.3,
-        "terrain_types": ["flat", "moderate", "rough"],
-        "terrain_weights": [0.3, 0.5, 0.2],
-        "cmd_duration": 4,
-    },
-    {
-        "progress": 0.6,
-        "terrain_types": ["flat", "moderate", "rough"],
-        "terrain_weights": [0.2, 0.3, 0.5],
+        "terrain_types": ["rough"],
+        "terrain_weights": [1],
         "cmd_duration": 4,
     },
 ]
@@ -36,14 +28,8 @@ TERRAIN_CURRICULUM = [
 PLATFORM_CURRICULUM = [
     {
         "progress": 0.0,
-        "terrain_types": ["flat", "moderate"],
-        "terrain_weights": [0.7, 0.3],
-        "cmd_duration": 8,
-    },
-    {
-        "progress": 0.3,
         "terrain_types": ["flat", "moderate", "platforms"],
-        "terrain_weights": [0.2, 0.2, 0.6],
+        "terrain_weights": [0.1, 0.1, 0.8],
         "cmd_duration": 8,
     },
 ]
@@ -137,6 +123,22 @@ def train(
     total_timesteps = num_envs * steps_per_env
     initial_stage = curriculum[0]
 
+    if env_cls is TerrainAwareWalkerEnv:
+        policy_type = "MultiInputPolicy"
+        policy_kwargs = dict(
+            features_extractor_class=TerrainCNNExtractor,
+            features_extractor_kwargs=dict(features_dim=160),
+            net_arch=dict(pi=[256, 256], vf=[256, 256]),
+            activation_fn=torch.nn.ELU,
+        )
+
+    elif env_cls is WalkerEnv:
+        policy_type = "MlpPolicy"
+        policy_kwargs=dict(
+                net_arch=dict(pi=[256, 256], vf=[256, 256]),
+                activation_fn=torch.nn.ELU,
+            )
+
     # ── Helper to build one env instance ─────────────────────────────────
     def make_env(render_mode=None):
         def _init():
@@ -205,7 +207,7 @@ def train(
     # ── PPO ──────────────────────────────────────────────────────────────
     try:
         model = PPO(
-            "MlpPolicy",
+            policy_type,
             train_env,
             learning_rate=1e-4,
             n_steps=2048,
@@ -217,10 +219,7 @@ def train(
             ent_coef=0.01,
             vf_coef=0.5,
             max_grad_norm=0.5,
-            policy_kwargs=dict(
-                net_arch=dict(pi=[256, 256], vf=[256, 256]),
-                activation_fn=torch.nn.ELU,
-            ),
+            policy_kwargs=policy_kwargs,
             tensorboard_log=f"./tb_logs/{run_name}",
             verbose=1,
         )
@@ -246,5 +245,5 @@ if __name__ == "__main__":
     train(
         curriculum=PLATFORM_CURRICULUM,
         env_cls=TerrainAwareWalkerEnv,
-        run_name="terrainwalker_platform",
+        run_name="terrainwalker_platform_cnn",
     )

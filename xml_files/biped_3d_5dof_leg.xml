@@ -7,6 +7,12 @@
         <hfield name="terrain" nrow="256" ncol="256" size="16 16 0.5 0.01"/>
     </asset>
 
+    <visual>
+        <headlight diffuse="0.6 0.6 0.6" ambient="0.3 0.3 0.3" specular="0.1 0.1 0.1"/>
+        <rgba haze="0.15 0.25 0.35 1"/>
+        <global azimuth="120" elevation="30" offwidth="800" offheight="600"/>
+    </visual>
+
     <worldbody>
         <light name="sun" directional="true" dir="-1 -1 -2" castshadow="true"/>
         <camera name="track" pos="3 -3 1" xyaxes="1 1 0 0 0 1" mode="trackcom"/>

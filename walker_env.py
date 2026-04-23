@@ -9,6 +9,8 @@ from obs_manager import ObservationManager, CommandGenerator, PushDisturbance, H
 from icp_controller import WalkingController
 from terrain import generate_terrain
 
+from joystick_control import XboxController
+
 import utils
 
 class WalkerEnv(gym.Env):
@@ -27,7 +29,7 @@ class WalkerEnv(gym.Env):
     control_freq = 50 # Hz
 
 
-    def __init__(self, render_mode="rgb_array", terrain_types=["flat", "moderate", "rough"], terrain_weights=None):
+    def __init__(self, render_mode="rgb_array", terrain_types=["flat", "moderate", "rough"], terrain_weights=None, control_mode="auto"):
         xml_path = os.path.join("xml_files", "biped_3d_5dof_leg.xml")
         self.model = mujoco.MjModel.from_xml_path(xml_path)
         self.model.hfield_data[:] = 0.5 # Crashes otherwise
@@ -81,9 +83,12 @@ class WalkerEnv(gym.Env):
         self.dt = self.model.opt.timestep
         self.decimation = int(1 / (self.control_freq * self.dt))
 
-        
-        self.command_manager = CommandGenerator(dt=(self.dt * self.decimation))
-        self.command_manager.reset()
+        if control_mode == "auto":
+            self.command_manager = CommandGenerator(dt=(self.dt * self.decimation))
+            self.command_manager.reset()
+
+        elif control_mode == "joystick":
+            self.command_manager = XboxController()
 
         self.controller = WalkingController(self.model, self.data, t0=0.0)
 
@@ -379,7 +384,7 @@ class TerrainAwareWalkerEnv(WalkerEnv):
     def __init__(self, render_mode="rgb_array", 
                  terrain_types=["flat", "moderate", "rough"], 
                  terrain_weights=None,
-                 grid_size=8,
+                 grid_size=32,
                  extent=1):
         
         super().__init__(render_mode, terrain_types, terrain_weights)
@@ -400,19 +405,33 @@ class TerrainAwareWalkerEnv(WalkerEnv):
         Previous Action (10,)
         Height Map (grid_x, grid_y)
         '''
-        self.obs_dim = 103 + (self.hfield_grid_size**2)
-        self.observation_space = gym.spaces.Box(
-            low=-np.inf,
-            high=np.inf,
-            shape=(self.obs_dim,),
-            dtype=np.float32,
-        )
+        robot_state_dim = (103,)
+        terrain_dim = (1, grid_size, grid_size)
+
+        self.observation_space = gym.spaces.Dict({
+            "robot_state" : gym.spaces.Box(
+                low=-np.inf,
+                high=np.inf,
+                shape=robot_state_dim,
+                dtype=np.float32,
+            ),
+
+            "terrain" : gym.spaces.Box(
+                low=-np.inf,
+                high=np.inf,
+                shape=terrain_dim,
+                dtype=np.float32,
+            )
+        })
 
     def _get_obs(self, cmd_vel, prev_action):
         ''' Adds Heightfield to Observation'''
-        obs = super()._get_obs(cmd_vel, prev_action)
-        heights, self._hfield_world_points = self.height_scanner.sample_heightfield()
-        return np.concatenate([obs, heights])
+        robot_state_obs = super()._get_obs(cmd_vel, prev_action)
+        terrain_obs, self._hfield_world_points = self.height_scanner.sample_heightfield()
+        return {
+            "robot_state" : robot_state_obs,
+            "terrain" : terrain_obs
+        }
     
     def _draw_debug_arrows(self, scene):
         super()._draw_debug_arrows(scene)
@@ -427,13 +446,13 @@ class TerrainAwareWalkerEnv(WalkerEnv):
 
 
 if __name__ == '__main__':
-    env = TerrainAwareWalkerEnv(render_mode="human", terrain_types=["rough", "moderate"])
+    env = WalkerEnv(render_mode="human", terrain_types=["flat"])
 
     try:
         while True:
             obs, r, term, trunc, info = env.step(np.zeros(10))
             env.render()
-            time.sleep(1 / 50)  # match your 50Hz control rate
+            time.sleep(1 / 5)  # match your 50Hz control rate
             if term:
                 env.reset()
 
